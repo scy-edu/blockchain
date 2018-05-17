@@ -150,11 +150,45 @@ blockchain = Blockchain()
 
 @app.route('/mine', methods=['GET'])
 def mine():
-    return "Mine"
+    # We run the proof of work algorithm to get the next proof
+    last_block = blockchain.last_block
+    last_proof = last_block['proof']
+    proof = blockchain.proof_of_work(last_proof)
+
+    # We must receive a reward for finding the proof
+    blockchain.new_transaction(
+        sender="0",
+        recipient=node_identifier,
+        amount=1,
+    )
+
+    # Add the new Block to the Blockchain
+    previous_hash = blockchain.hash(last_block)
+    block = blockchain.new_block(proof, previous_hash)
+
+    response = {
+        'message': "New Block Forged",
+        'index': block['index'],
+        'transactions': block['transactions'],
+        'proof': block['proof'],
+        'previous_hash': block['previous_hash'],
+    }
+    return jsonify(response), 200
 
 @app.route('/transactions/new', methods=['POST'])
 def new_transaction():
-    return "New Transaction"
+    values = request.get_json()
+
+    # Validate all required fields are in the POST body
+    required = ['sender', 'recipient', 'amount']
+    if not all(k in values for k in required):
+        return 'Missing values', 400
+
+    # Create a new Transaction
+    index = blockchain.new_transaction(values['sender'], values['recipient'], values['amount'])
+
+    response = {'message': f'Transaction will be added to Block {index}'}
+    return jsonify(response), 201
 
 @app.route('/chain', methods=['GET'])
 def full_chain():
@@ -164,5 +198,7 @@ def full_chain():
     }
     return jsonify(response), 200
 
+# when the python interpreter is running the module as the main program, it'll be __main__
+# otherwise, the __name__ will be set to the modules name
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
