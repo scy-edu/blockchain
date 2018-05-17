@@ -1,9 +1,11 @@
 import hashlib
 import json
+from urllib.parse import urlparse
 from textwrap import dedent
 from time import time
 from uuid import uuid4
 
+import requests
 from flask import Flask, jsonify, request
 
 '''
@@ -44,12 +46,93 @@ print(f'The solution is y = {y}')
 - difficulty is determined by the number of characters searched for in a string
 '''
 
+'''
+Consensus:
+We need to ensure that all nodes reflect the same chain
+
+- A node should know about neighboring nodes on the network
+- Each node should keep a registry of other nodes on the network
+- A conflict is when one node has a different chain to another node.
+- The longest chain is authoritative
+'''
+
 class Blockchain(object):
     def __init__(self):
         self.chain = []
         self.current_transactions = []
+        self.nodes = set()
 
         self.new_block(previous_hash=1, proof=100)
+
+    def valid_chain(self, chain):
+        '''
+        Determine if a given blockchain is valid
+
+        :param chain: <list> A blockchain
+        :return: <bool> True if valid, False if not
+        '''
+
+        last_block = chain[0]
+        current_index = 1
+
+        while current_index < len(chain):
+            block = chain[current_index]
+            print(f'{last_block}')
+            print(f'{block}')
+
+            # Validate the hash of the block is correct
+            if block['previous_hash'] != self.hash(last_block):
+                return False
+
+            # Check that the PoW is correct
+            if not self.valid_proof(last_block['proof'], block['proof']):
+                return False
+
+            last_block = block
+            current_index += 1
+
+        return True
+
+    def resolve_conflicts(self):
+        '''
+        This is our Consensus algorithm, it resolves conflicts by replacing our chain with the longest on the network
+
+        :return: <bool> True if our chain was replaced. False if not
+        '''
+
+        neighbors = self.nodes
+        new_chain = None
+
+        # We are looking for the longest chain
+        max_length = len(self.chain)
+
+        for node in neighbors:
+            response = requests.get(f'http://{node}/chain')
+
+            if response.status_code == 200:
+                length = response.json()['length']
+                chain = response.json()['chain']
+
+                # Check if the length is longer and if the chain is valid
+                if length > max_length and self.valid_chain(chain):
+                    max_length = length
+                    new_chain = chain
+
+        if new_chain:
+            self.chain = new_chain
+            return True
+
+        return False
+
+    def register_node(self, address):
+        """
+        Add a new node to the list of nodes
+        :param address: <str> Address of node. Eg. 'http://192.168.0.5:5000'
+        :return: None
+        """
+
+        parsed_url = urlparse(address)
+        self.nodes.add(parsed_url.netloc)
 
     def proof_of_work(self, last_proof):
         """
@@ -198,7 +281,47 @@ def full_chain():
     }
     return jsonify(response), 200
 
+@app.route('/nodes/register', methods=['POST'])
+def register_nodes():
+    values = request.get_json()
+
+    nodes = values.get('nodes')
+    if nodes is None:
+        return "Error: Please supply a valid list of nodes", 400
+
+    for node in nodes:
+        blockchain.register_node(node)
+
+    response = {
+        'message': 'New nodes have been added',
+        'total_nodes': list(blockchain.nodes),
+    }
+    return jsonify(response), 201
+
+@app.route('/nodes/resolve', methods=['GET'])
+def consensus():
+    replaced = blockchain.resolve_conflicts()
+
+    if replaced:
+        response = {
+            'message': 'Our chain was replaced',
+            'chain': blockchain.chain
+        }
+    else:
+        response = {
+            'message': 'Our chain is authoritative',
+            'chain': blockchain.chain
+        }
+
+    return jsonify(response), 200
 # when the python interpreter is running the module as the main program, it'll be __main__
 # otherwise, the __name__ will be set to the modules name
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    from argparse import ArgumentParser
+
+    parser = ArgumentParser()
+    parser.add_argument('-p', '--port', default=5000, type=int, help='port to listen on')
+    args = parser.parse_args()
+    port = args.port
+
+    app.run(host='0.0.0.0', port=port)
