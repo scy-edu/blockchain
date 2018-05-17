@@ -21,12 +21,60 @@ block = {
 
 '''
 
+'''
+Proof of work:
+- Goal: discover a number which solves a problem
+- The number must be difficult to find but easy to verify
+- for x = 5, you must figure out y in hash(x * y) = ab123c where it ends in a 0
+
+from hashlib import sha256
+x = 5
+y = 0  # We don't know what y should be yet...
+
+while sha256(f'{x*y}'.encode()).hexdigest()[-1] != "0":
+    y += 1
+
+print(f'The solution is y = {y}')
+
+- solution ends up being  y = 21
+- difficulty is determined by the number of characters searched for in a string
+'''
+
 class Blockchain(object):
     def __init__(self):
         self.chain = []
         self.current_transactions = []
 
         self.new_block(previous_hash=1, proof=100)
+
+    def proof_of_work(self, last_proof):
+        """
+        Our Proof of Work Algorithm
+        - find a number p' that contains 4 leading zeroes
+        - p is the previous proof, and p' is the new proof
+
+        :param last_proof: <int>
+        :return: <int>
+        """
+
+        proof = 0
+        while self.valid_proof(last_proof, proof) is False:
+            proof += 1
+
+        return proof
+
+    @staticmethod
+    def valid_proof(last_proof, proof):
+        """
+        Validates the proof: does the hash contain 4 leading 0s?
+
+        :param last_proof: <int> Previous Proof
+        :param proof: <int> Current Proof
+        :return: <bool> True if correct, False if not
+        """
+        guess = f'{last_proof}{proof}'.encode()
+        guess_hash = hashlib.sha256(guess).hexdigest()
+        return guess_hash[:4] == "0000"
     
     def new_block(self):
         """
